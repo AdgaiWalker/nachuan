@@ -1,0 +1,145 @@
+{
+  "name": "2api-plugin-gemini",
+  "version": "1.0.0",
+  "displayName": "Google Gemini Business 2API",
+  "description": "基于 Gemini Business 逆向转译的 Cordis 2API 插件，支持 Gemini 2.5/3.5/Flash/Imagen 多模态模型与频次窗口限额",
+  "author": "nachuan",
+  "upstream": {
+    "baseUrl": "https://biz-discoveryengine.googleapis.com/v1alpha",
+    "timeoutSeconds": 180,
+    "skipTlsVerify": false
+  },
+  "auth": {
+    "type": "bearer",
+    "tokenHeader": "Authorization",
+    "tokenPrefix": "Bearer ",
+    "cookieKeys": null,
+    "refreshInterval": 3600,
+    "refreshUrl": "",
+    "deviceFlow": null
+  },
+  "headers": {
+    "Origin": "https://business.gemini.google",
+    "Referer": "https://business.gemini.google/",
+    "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
+    "x-server-timeout": "1800"
+  },
+  "chat": {
+    "path": "/projects/default/locations/global/collections/default_collection/engines/default_engine/servingConfigs/default_search:search",
+    "method": "POST",
+    "transformStyle": "gemini_business",
+    "customFields": null
+  },
+  "stream": {
+    "protocol": "sse",
+    "chunkPrefix": "data: ",
+    "doneMarker": "[DONE]",
+    "deltaPath": "choices.0.delta.content"
+  },
+  "models": [
+    {
+      "id": "gemini-auto",
+      "upstreamId": "gemini-auto",
+      "rate": 1,
+      "maxTokens": 1048576,
+      "description": "Gemini 智能自适应调度模型"
+    },
+    {
+      "id": "gemini-2.5-pro",
+      "upstreamId": "gemini-2.5-pro",
+      "rate": 1,
+      "maxTokens": 1048576,
+      "description": "Gemini 2.5 Pro 强推理多模态模型"
+    },
+    {
+      "id": "gemini-3.5-flash",
+      "upstreamId": "gemini-3.5-flash",
+      "rate": 0.5,
+      "maxTokens": 1048576,
+      "description": "Gemini 3.5 Flash 极速响应多模态模型"
+    },
+    {
+      "id": "gemini-3.1-pro-preview",
+      "upstreamId": "gemini-3.1-pro-preview",
+      "rate": 1.5,
+      "maxTokens": 1048576,
+      "description": "Gemini 3.1 Pro 前沿预览版"
+    },
+    {
+      "id": "gemini-imagen",
+      "upstreamId": "gemini-imagen",
+      "rate": 2,
+      "maxTokens": 4096,
+      "description": "Gemini 专用高清图片生成模型"
+    },
+    {
+      "id": "gemini-veo",
+      "upstreamId": "gemini-veo",
+      "rate": 5,
+      "maxTokens": 4096,
+      "description": "Gemini 专用视频生成模型"
+    }
+  ],
+  "errorRules": [
+    {
+      "httpStatus": 429,
+      "substring": "RESOURCE_EXHAUSTED",
+      "action": "cooldown",
+      "cooldown": 180
+    },
+    {
+      "httpStatus": 401,
+      "substring": "UNAUTHENTICATED",
+      "action": "refresh_token",
+      "cooldown": 0
+    }
+  ],
+  "actions": [
+    {
+      "id": "refresh_token",
+      "label": "置换 JWT 令牌",
+      "description": "通过 refresh-worker 或客户端凭据自动续期 Google JWT",
+      "style": "primary"
+    },
+    {
+      "id": "test_connection",
+      "label": "测试 Google 连通性",
+      "description": "探测 biz-discoveryengine.googleapis.com 网关可达性",
+      "style": "secondary"
+    }
+  ],
+  "configSchema": [
+    {
+      "key": "jwt",
+      "label": "Google Business JWT 凭据",
+      "type": "password",
+      "placeholder": "eyJhbGciOiJSUzI1NiIsImtpZCI6...",
+      "description": "Gemini Business 授权 JWT 字符串",
+      "required": true
+    },
+    {
+      "key": "proxy_url",
+      "label": "出站代理 (可选)",
+      "type": "text",
+      "placeholder": "http://127.0.0.1:7890",
+      "description": "针对国内网络环境的 HTTP/SOCKS 转发代理"
+    }
+  ],
+  "runtime": {
+    "language": "typescript",
+    "entry": "index.ts",
+    "protocol": 1
+  },
+  "config": {
+    "baseUrl": "https://biz-discoveryengine.googleapis.com/v1alpha",
+    "chatPath": "/projects/default/locations/global/collections/default_collection/engines/default_engine/servingConfigs/default_search:search",
+    "timeoutSeconds": 180,
+    "headers": {
+      "Origin": "https://business.gemini.google",
+      "Referer": "https://business.gemini.google/",
+      "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
+      "x-server-timeout": "1800"
+    },
+    "apiKey": ""
+  }
+}

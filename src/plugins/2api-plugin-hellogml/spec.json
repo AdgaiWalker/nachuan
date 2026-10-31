@@ -1,0 +1,122 @@
+{
+  "name": "2api-plugin-hellogml",
+  "version": "1.0.0",
+  "displayName": "Zhipu Qingyan (智谱清言) 2API",
+  "description": "基于 HelloGML 逆向转译的智谱清言 Cordis 插件，支持 GLM-4/GLM-5 系列模型会话与多协议兼容转换",
+  "author": "nachuan",
+  "upstream": {
+    "baseUrl": "https://chatglm.cn",
+    "timeoutSeconds": 120,
+    "skipTlsVerify": false
+  },
+  "auth": {
+    "type": "bearer",
+    "tokenHeader": "Authorization",
+    "tokenPrefix": "Bearer ",
+    "cookieKeys": null,
+    "refreshInterval": 0,
+    "refreshUrl": "",
+    "deviceFlow": null
+  },
+  "headers": {
+    "Origin": "https://chatglm.cn",
+    "Referer": "https://chatglm.cn/",
+    "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36"
+  },
+  "chat": {
+    "path": "/v1/chat/completions",
+    "method": "POST",
+    "transformStyle": "openai_passthrough",
+    "customFields": null
+  },
+  "stream": {
+    "protocol": "sse",
+    "chunkPrefix": "data: ",
+    "doneMarker": "[DONE]",
+    "deltaPath": "choices.0.delta.content"
+  },
+  "models": [
+    {
+      "id": "glm-4",
+      "upstreamId": "glm-4",
+      "rate": 1,
+      "maxTokens": 131072,
+      "description": "智谱 GLM-4 经典大模型"
+    },
+    {
+      "id": "glm-4.7",
+      "upstreamId": "glm-4.7",
+      "rate": 1.2,
+      "maxTokens": 131072,
+      "description": "智谱 GLM-4.7 增强推理模型"
+    },
+    {
+      "id": "glm-5",
+      "upstreamId": "glm-5",
+      "rate": 1.5,
+      "maxTokens": 131072,
+      "description": "智谱 GLM-5 新一代前沿模型"
+    }
+  ],
+  "errorRules": [
+    {
+      "httpStatus": 429,
+      "substring": "rate limit",
+      "action": "cooldown",
+      "cooldown": 300
+    },
+    {
+      "httpStatus": 401,
+      "substring": "invalid_token",
+      "action": "refresh_token",
+      "cooldown": 0
+    }
+  ],
+  "actions": [
+    {
+      "id": "refresh_token",
+      "label": "刷新 Access Token",
+      "description": "调用智谱清言 user/refresh 接口自动置换最新凭据",
+      "style": "primary"
+    },
+    {
+      "id": "test_connection",
+      "label": "测试上游连通性",
+      "description": "探测 chatglm.cn 端点响应状态",
+      "style": "secondary"
+    }
+  ],
+  "configSchema": [
+    {
+      "key": "refresh_token",
+      "label": "清言 Refresh Token",
+      "type": "password",
+      "placeholder": "填入从浏览器抓取的 refresh_token",
+      "description": "智谱清言网页端免密续期令牌",
+      "required": true
+    },
+    {
+      "key": "cookie",
+      "label": "网页 Cookie 串 (可选)",
+      "type": "textarea",
+      "placeholder": "填入完整 Cookie 字符串",
+      "description": "辅助通过网页端 WAF 校验"
+    }
+  ],
+  "runtime": {
+    "language": "typescript",
+    "entry": "index.ts",
+    "protocol": 1
+  },
+  "config": {
+    "baseUrl": "https://chatglm.cn",
+    "chatPath": "/v1/chat/completions",
+    "timeoutSeconds": 120,
+    "headers": {
+      "Origin": "https://chatglm.cn",
+      "Referer": "https://chatglm.cn/",
+      "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36"
+    },
+    "apiKey": ""
+  }
+}

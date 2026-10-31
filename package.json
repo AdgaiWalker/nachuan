@@ -1,0 +1,17 @@
+{
+  "name": "nachuan-dev-handoff",
+  "version": "0.2.0",
+  "private": true,
+  "description": "Nachuan Python kernel and TypeScript plugin development handoff",
+  "packageManager": "pnpm@12.0.0",
+  "engines": {
+    "node": ">=24.18.0",
+    "pnpm": ">=12.0.0"
+  },
+  "scripts": {
+    "setup": "bash scripts/setup.sh",
+    "test": "bash scripts/test.sh",
+    "kernel": "bash scripts/run-kernel.sh",
+    "console": "bash scripts/run-console.sh"
+  }
+}

@@ -1,0 +1,17 @@
+{
+  "api_key": "change-me-local-dev",
+  "plugins_dir": "../plugins",
+  "kernel": {
+    "requestTimeoutSeconds": 120,
+    "healthIntervalSeconds": 300,
+    "maxRequestBytes": 8388608,
+    "fallbackEnabled": false,
+    "routes": {}
+  },
+  "plugins": {
+    "2api-plugin-gemini": { "enabled": true, "maxInFlight": 1 },
+    "2api-plugin-hellogml": { "enabled": true, "maxInFlight": 1 },
+    "2api-plugin-qwen": { "enabled": true, "maxInFlight": 2 },
+    "2api-plugin-workbuddy": { "enabled": true, "maxInFlight": 1 }
+  }
+}

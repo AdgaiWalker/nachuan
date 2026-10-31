@@ -1,0 +1,9 @@
+name: 2api-plugin-gemini
+version: 1.0.0
+services:
+  - 2api.gemini
+events:
+  - '2api/gemini/ready'
+  - '2api/gemini/exhausted'
+middlewares:
+  - transformGeminiStream

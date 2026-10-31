@@ -1,0 +1,6 @@
+# nachuan (纳川) 声明式插件挂载补丁
+plugins:
+  2api-plugin-qwen:
+    enabled: true
+    baseUrl: "https://dashscope.aliyuncs.com"
+    timeoutSeconds: 120

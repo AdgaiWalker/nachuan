@@ -1,0 +1,34 @@
+# dependencies
+node_modules/
+.pnpm-store/
+
+# build and caches
+dist/
+__pycache__/
+*.py[cod]
+.vite/
+
+# local configuration and runtime state
+config.local.json
+src/backend/config.local.json
+src/backend/data/
+src/data/
+src/plugins/*/credentials/*.json
+!src/plugins/*/credentials/.gitkeep
+usage-ledger.json
+state.json
+
+# local secrets
+.env
+.env.*
+*.pem
+*.key
+
+# OS and editor
+.DS_Store
+.idea/
+.vscode/
+
+# local reports
+probe-max-tokens.jsonl
+*.log

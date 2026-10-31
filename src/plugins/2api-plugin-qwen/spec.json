@@ -1,0 +1,112 @@
+{
+  "name": "2api-plugin-qwen",
+  "version": "1.0.0",
+  "displayName": "qwen 2API (Experimental)",
+  "description": "由 Python 极速实验探针验证并自动导出的 2API 插件规范",
+  "author": "experimenter",
+  "upstream": {
+    "baseUrl": "https://dashscope.aliyuncs.com",
+    "timeoutSeconds": 120,
+    "skipTlsVerify": false
+  },
+  "auth": {
+    "type": "bearer",
+    "tokenHeader": "Authorization",
+    "tokenPrefix": "Bearer ",
+    "cookieKeys": null,
+    "refreshInterval": 0,
+    "refreshUrl": "",
+    "deviceFlow": null
+  },
+  "headers": {
+    "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36"
+  },
+  "chat": {
+    "path": "/compatible-mode/v1/chat/completions",
+    "method": "POST",
+    "transformStyle": "openai_passthrough",
+    "customFields": null
+  },
+  "stream": {
+    "protocol": "sse",
+    "chunkPrefix": "data: ",
+    "doneMarker": "[DONE]",
+    "deltaPath": "choices.0.delta.content"
+  },
+  "models": [
+    {
+      "id": "qwen-max",
+      "upstreamId": "qwen-max",
+      "rate": 1,
+      "maxTokens": 32768,
+      "description": "qwen-max 模型"
+    },
+    {
+      "id": "qwen-plus",
+      "upstreamId": "qwen-plus",
+      "rate": 1,
+      "maxTokens": 32768,
+      "description": "qwen-plus 模型"
+    },
+    {
+      "id": "qwen-turbo",
+      "upstreamId": "qwen-turbo",
+      "rate": 1,
+      "maxTokens": 32768,
+      "description": "qwen-turbo 模型"
+    },
+    {
+      "id": "qwen-long",
+      "upstreamId": "qwen-long",
+      "rate": 1,
+      "maxTokens": 32768,
+      "description": "qwen-long 模型"
+    }
+  ],
+  "errorRules": [
+    {
+      "httpStatus": 429,
+      "substring": "",
+      "action": "cooldown",
+      "cooldown": 300
+    },
+    {
+      "httpStatus": 401,
+      "substring": "",
+      "action": "refresh_token",
+      "cooldown": 0
+    }
+  ],
+  "actions": [
+    {
+      "id": "test_connection",
+      "label": "测试 DashScope 连通性",
+      "description": "探测阿里云百炼 / 通义千问网关网络连通状态",
+      "style": "secondary"
+    }
+  ],
+  "configSchema": [
+    {
+      "key": "api_key",
+      "label": "DashScope API Key / Token",
+      "type": "password",
+      "placeholder": "sk-...",
+      "description": "用于请求阿里通义千问上游的认证密钥",
+      "required": true
+    }
+  ],
+  "runtime": {
+    "language": "typescript",
+    "entry": "index.ts",
+    "protocol": 1
+  },
+  "config": {
+    "baseUrl": "https://dashscope.aliyuncs.com",
+    "chatPath": "/compatible-mode/v1/chat/completions",
+    "timeoutSeconds": 120,
+    "headers": {
+      "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36"
+    },
+    "apiKey": ""
+  }
+}

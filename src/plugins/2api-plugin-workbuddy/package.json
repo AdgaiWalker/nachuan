@@ -1,0 +1,22 @@
+{
+  "author": "nachuan",
+  "description": "腾讯 WorkBuddy / CodeBuddy 官方逆向 Cordis 插件，支持 OAuth 设备流授权、三段式 UA 指纹伪装与积分自动维护",
+  "devDependencies": {
+    "typescript": "^5.0.0"
+  },
+  "keywords": [
+    "cordis",
+    "plugin",
+    "nachuan",
+    "2api",
+    "2api-plugin-workbuddy"
+  ],
+  "license": "MIT",
+  "main": "index.ts",
+  "name": "2api-plugin-workbuddy",
+  "peerDependencies": {
+    "@cordisjs/core": "^0.1.0"
+  },
+  "types": "index.ts",
+  "version": "1.0.0"
+}

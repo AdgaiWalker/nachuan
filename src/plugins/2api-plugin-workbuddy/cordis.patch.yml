@@ -1,0 +1,6 @@
+# nachuan (纳川) 声明式插件挂载补丁
+plugins:
+  2api-plugin-workbuddy:
+    enabled: true
+    baseUrl: "https://copilot.tencent.com"
+    timeoutSeconds: 120

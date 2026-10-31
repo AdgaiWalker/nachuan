@@ -1,0 +1,11 @@
+{
+  "name": "2api-plugin-gemini",
+  "version": "1.0.0",
+  "description": "Google Gemini Business 2API Cordis Plugin",
+  "main": "index.ts",
+  "author": "nachuan",
+  "license": "MIT",
+  "dependencies": {
+    "@cordisjs/core": "^0.1.0"
+  }
+}

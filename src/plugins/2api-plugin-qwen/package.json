@@ -1,0 +1,22 @@
+{
+  "author": "experimenter",
+  "description": "由 Python 极速实验探针验证并自动导出的 2API 插件规范",
+  "devDependencies": {
+    "typescript": "^5.0.0"
+  },
+  "keywords": [
+    "cordis",
+    "plugin",
+    "nachuan",
+    "2api",
+    "2api-plugin-qwen"
+  ],
+  "license": "MIT",
+  "main": "index.ts",
+  "name": "2api-plugin-qwen",
+  "peerDependencies": {
+    "@cordisjs/core": "^0.1.0"
+  },
+  "types": "index.ts",
+  "version": "1.0.0"
+}
