@@ -4,9 +4,18 @@
 
 > **状态声明**
 > - 可用：Python 宿主内核、TypeScript 插件进程协议、账号池、路由、流式归一化、监控、账本、热配置和控制台。
-> - 未完成：四个平台插件的真实上游协议适配。当前插件只是通用 OpenAI 兼容包装，不能视为四个平台已可用。
-> - 未验证：真实平台凭证与端到端上游调用。
+> - 已联调：WorkBuddy 插件可通过本机已有的 WorkBuddy 兼容网关转发聊天；独立临时内核的普通和流式调用已实测。控制台提供试用、连接检查、原网关账号缓存查看，以及逐账号暂停/恢复入口；暂停/恢复仅经假网关验证。平台账号仍由已有网关管理。
+> - 未完成：其余三个平台的真实上游适配，以及 WorkBuddy 平台专属账号、额度和动作的纳川内集成。
+> - 未验证：其余平台真实凭证、完整控制台与逐平台接入 DoD。
 > - 非生产：单用户本地网关，不含多租户、TLS 和公网防护。
+
+本次审查修复及后续接入事项见 `TODO.md` 和 `修复记录_2026-10-31.md`。
+
+工作区现有的 V2.3 ZIP 是历史交付快照，不含后添加的 `AGENTS.md`、文档更新和 WorkBuddy 桥接修改；请以当前开发目录为准。
+
+## 通用内核与当前边界
+
+已提供协议 1/2 协商、声明式 schema、通用凭证、Actions、额度快照和分单位账本。完整范围、API、迁移及已知边界见 [内核 V2 验收记录](docs/内核V2验收记录_2026-10-31.md)。已修复复审 R01–R06；动作历史不可读时进入受限状态，旧版动作结果会清除、幂等身份保留。WorkBuddy 当前采用本地网关桥接，其余平台真实适配仍未完成。
 
 ## 运行环境
 
@@ -67,7 +76,7 @@ bash scripts/run-console.sh
 ```text
 src/kernel/            Python 宿主内核与测试
 src/plugin-runtime/    TypeScript 插件宿主与协议适配
-src/plugins/           四个平台插件（当前为开发骨架）
+src/plugins/           WorkBuddy 本地网关桥接及其他平台开发骨架
 src/console/           React 控制台
 src/backend/           仅存放本地配置；Go 后端未包含
 examples/              配置和凭证示例
@@ -79,11 +88,18 @@ scripts/               安装、测试和启动脚本
 
 ## 账号配置
 
-每个账号一个 JSON 文件，放在对应插件的 `credentials/` 目录。通用运行时当前读取 `apiKey` 或 `accessToken`：
+每个账号一个 JSON 文件，放在对应插件的 `credentials/` 目录。当前四个通用适配器读取 `apiKey` 或 `accessToken`；V2 插件也可以通过 `credentialSchema` 声明其他结构。推荐通过账号 API 写入。手工创建旧格式示例时，先确认目标不存在并设置私有权限：
 
 ```bash
-cp examples/credentials.example.json \
-  src/plugins/2api-plugin-qwen/credentials/account-1.json
+credential_dir=src/plugins/2api-plugin-qwen/credentials
+mkdir -p "$credential_dir"
+chmod 700 "$credential_dir"
+if [ -e "$credential_dir/account-1.json" ]; then
+  echo "账号文件已存在，未覆盖"
+else
+  (umask 077; cp examples/credentials.example.json "$credential_dir/account-1.json")
+  chmod 600 "$credential_dir/account-1.json"
+fi
 ```
 
 ```json
@@ -94,7 +110,7 @@ cp examples/credentials.example.json \
 }
 ```
 
-凭证目录和文件会以 `0700/0600` 权限保存。不要提交到 Git。
+宿主写入凭证时使用 `0700/0600`；手工复制或已有文件的权限不会因读取自动修正，请自行检查。不要提交到 Git。
 
 也可以使用控制台或接口添加：
 
@@ -113,17 +129,19 @@ Content-Type: application/json
 | `2api-plugin-qwen` | DashScope compatible 接口，最接近可联调状态 |
 | `2api-plugin-gemini` | 通用包装，search 上游协议尚未实现 |
 | `2api-plugin-hellogml` | 通用包装，网页会话协议尚未实现 |
-| `2api-plugin-workbuddy` | 通用包装，WorkBuddy 私有协议尚未实现 |
+| `2api-plugin-workbuddy` | 桥接本机 WorkBuddy 网关，聊天链路已实测；账号与额度仍由原服务管理 |
 
 `spec.json` 里的 `configSchema` 是目标接入字段，不代表当前通用运行时已经消费这些字段。详见 `KNOWN_ISSUES.md`。
 
+WorkBuddy 插件的账号密钥是 **7863 本地网关的 API Key**，并非平台登录凭证。接入与实测范围见 [平台接入实施与验收](docs/平台接入实施与验收.md)。
+
 ## 验证基线
 
-- Python：44 项测试通过
-- TypeScript：4 项测试通过
-- 控制台：TypeScript 检查与 Vite 构建通过
+- Python：96 项测试通过（含通用内核集成验收）
+- TypeScript：29 项测试通过（含跨语言共用 schema fixtures）
+- 控制台：1 项筛选/竞态回归、TypeScript 检查与 Vite 构建通过
 
-测试不请求真实平台；使用本地假上游验证 Python → Node → HTTP 的完整链路。
+以上为 2026-11-01 V2.3 交付包的本地验证记录，不代表此后每次运行的结果；测试不请求真实平台，使用本地假上游验证 Python → Node → HTTP 链路。
 
 ## 关键文档
 

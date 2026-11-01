@@ -58,7 +58,9 @@ class ConfigStore:
                 self._raw = json.loads(self.path.read_text(encoding="utf-8"))
             old_raw = self._raw
             candidate_raw = dict(old_raw)
-            candidate_raw["kernel"] = kernel_config
+            candidate_raw["kernel"] = {key: value for key, value in kernel_config.items() if key != "plugins"}
+            if "plugins" in kernel_config:
+                candidate_raw["plugins"] = kernel_config["plugins"]
             candidate = HostConfig.from_dict(candidate_raw)
             previous_raw = self.path.read_bytes() if self.path.exists() else None
             self.path.parent.mkdir(parents=True, exist_ok=True)

@@ -1,0 +1,79 @@
+{
+  "name": "2api-plugin-example",
+  "version": "1.0.0",
+  "specVersion": 2,
+  "runtime": {
+    "entry": "index.ts"
+  },
+  "models": [
+    {
+      "id": "example-model",
+      "capabilities": [
+        "chat"
+      ],
+      "optionsSchema": {
+        "type": "object",
+        "properties": {
+          "thinking_budget": {
+            "type": "integer",
+            "minimum": 0
+          }
+        }
+      }
+    }
+  ],
+  "credentialSchema": {
+    "type": "object",
+    "properties": {
+      "cookie": {
+        "type": "string",
+        "minLength": 1,
+        "secret": true
+      },
+      "csrf": {
+        "type": "string",
+        "minLength": 1,
+        "secret": true
+      }
+    },
+    "required": [
+      "cookie",
+      "csrf"
+    ],
+    "additionalProperties": false
+  },
+  "config": {
+    "baseUrl": "http://127.0.0.1:9999"
+  },
+  "settingsSchema": {
+    "type": "object",
+    "properties": {
+      "baseUrl": {
+        "type": "string"
+      }
+    },
+    "required": [
+      "baseUrl"
+    ]
+  },
+  "actions": [
+    {
+      "id": "test_connection",
+      "scope": "account",
+      "timeoutSeconds": 10,
+      "idempotency": "read",
+      "inputSchema": {
+        "type": "object",
+        "additionalProperties": false
+      },
+      "outputSchema": {
+        "type": "object"
+      }
+    }
+  ],
+  "quota": {
+    "query": true,
+    "ttlSeconds": 300,
+    "reliableExhaustion": false
+  }
+}

@@ -4,16 +4,17 @@
 
 ## 平台插件
 
-### 1. 四个插件目前不是完整平台实现
+### 1. 平台能力尚未完整接入
 
-`src/plugins/2api-plugin-gemini`、`hellogml`、`qwen`、`workbuddy` 的 `index.ts` 均使用通用 `openAIBusiness` 包装：
+四个插件的 `index.ts` 均使用通用 `openAIBusiness` 包装：
 
 - Gemini 的 search 上游路径不是 OpenAI chat completions。
 - HelloGML 需要网页 refresh_token / cookie 协议。
-- WorkBuddy 需要私有设备与聊天协议。
+- WorkBuddy 通过 `127.0.0.1:7863` 已有兼容网关转发；平台账号、私有协议及额度由原网关处理，纳川只持有本地网关 API Key。手动动作可查看原网关账号缓存，但更新时间未知，缓存零值可能未知，不能作为实时额度。
+- WorkBuddy 单账号暂停/恢复选号操作仅对假网关验证，尚未对真实账号执行。结果未知时必须先到原网关核对状态；登录、签到和删除仍在原面板处理。
 - Qwen 的 DashScope compatible 接口最接近可联调，但仍需真实 key 验证。
 
-因此当前交付定位为**插件协议开发骨架**，不是四平台可用版本。
+WorkBuddy 桥接已做本机普通和流式聊天实测，但不满足完整平台 DoD；其他三个插件仍是开发骨架。
 
 ### 2. `spec.json` 的 `configSchema` 尚未接入通用运行时
 
@@ -26,11 +27,11 @@
 
 ### 3. 平台健康检查与凭证刷新不完整
 
-通用 `openAIBusiness` 只实现 OpenAI `/models` 健康探测；`credential.refresh` 和平台特有的 `executeTask` 未实现。调度器可以注册任务，但当前四个插件没有可执行的周期动作。
+通用 `openAIBusiness` 实现 OpenAI `/models` 健康探测；WorkBuddy 在此基础上核对声明模型至少有一个出现在上游目录。`credential.refresh` 和平台特有的 `executeTask` 未实现，当前四个插件没有可执行的周期动作。WorkBuddy 的账号缓存查询是手动只读动作。
 
 ### 4. 未使用真实平台凭证验收
 
-所有测试使用本地假上游；没有对真实 Gemini Business、HelloGML、Qwen、WorkBuddy 发起请求。真实上游的鉴权、限流、SSE 格式和错误码仍需逐平台验收。
+自动化回归使用本地假上游。WorkBuddy 另通过用户本机已有网关完成一次普通及一次流式调用；没有直接验收 WorkBuddy 私有协议，也未对 Gemini Business、HelloGML 或 Qwen 使用真实凭证。鉴权、限流、额度与错误码仍需逐平台验收。
 
 ## 内核限制
 
@@ -47,7 +48,7 @@
 ### 7. 流式错误的两段语义
 
 - 首个数据块前失败：返回真实 HTTP 错误（已修复）。
-- 已发送首块后失败：HTTP 状态已经是 200，只能发送 SSE `error` 事件和 `[DONE]`，客户端必须识别。
+- 已发送首块后失败：HTTP 状态已经是 200，只能发送 SSE `error` 事件和 `[DONE]`，客户端必须识别。通用 OpenAI 适配器要求上游发送 `[DONE]`；没有结束标记的断流按失败处理。
 
 ### 8. 平台测试受环境限制
 
@@ -75,3 +76,7 @@
 - 禁用插件坏配置重载不能保留 last-good
 - 内容块丢失 `finish_reason`
 - 内容与 tool_calls 同块时内容重复
+
+## 通用内核 V2 更新
+
+本文件前述四平台/旧 configSchema 限制仍针对现有 legacy 骨架。V2 宿主现已提供 credentialSchema、通用账号 API、Actions 和 quota.query；接入者需实现相应 handler。内核范围、500 条动作历史的容量语义、固定间隔调度和文件存储边界见 `docs/内核V2验收记录_2026-10-31.md`。

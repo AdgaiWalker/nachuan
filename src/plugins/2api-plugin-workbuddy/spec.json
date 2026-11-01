@@ -1,163 +1,191 @@
 {
   "name": "2api-plugin-workbuddy",
-  "version": "1.0.0",
-  "displayName": "Tencent WorkBuddy 2API",
-  "description": "腾讯 WorkBuddy / CodeBuddy 官方逆向 Cordis 插件，支持 OAuth 设备流授权、三段式 UA 指纹伪装与积分自动维护",
-  "author": "nachuan",
-  "upstream": {
-    "baseUrl": "https://copilot.tencent.com",
-    "timeoutSeconds": 120,
-    "skipTlsVerify": false
-  },
-  "auth": {
-    "type": "oauth_device",
-    "tokenHeader": "Authorization",
-    "tokenPrefix": "Bearer ",
-    "cookieKeys": null,
-    "refreshInterval": 60,
-    "refreshUrl": "https://copilot.tencent.com/v2/plugin/auth/token/refresh",
-    "deviceFlow": {
-      "initUrl": "https://copilot.tencent.com/v2/plugin/auth/state?platform=CLI",
-      "pollUrl": "https://copilot.tencent.com/v2/plugin/auth/token",
-      "intervalSec": 3
-    }
-  },
-  "headers": {
-    "Origin": "https://www.codebuddy.cn",
-    "Referer": "https://www.codebuddy.cn/",
-    "User-Agent": "WorkBuddy/5.5.4 WorkBuddy/5.5.4 CLI/2.137.1",
-    "X-IDE-Product": "WorkBuddy",
-    "X-IDE-Version": "5.5.4",
-    "X-Product": "WorkBuddy"
-  },
-  "chat": {
-    "path": "/v2/chat/completions",
-    "method": "POST",
-    "transformStyle": "openai_passthrough",
-    "customFields": null
-  },
-  "stream": {
-    "protocol": "sse",
-    "chunkPrefix": "data: ",
-    "doneMarker": "[DONE]",
-    "deltaPath": "choices.0.delta.content"
+  "version": "1.2.0",
+  "displayName": "本地 WorkBuddy 网关",
+  "description": "通过本机 WorkBuddy 兼容接口调用已配置的账号；不直接管理 WorkBuddy 平台账号。",
+  "runtime": {
+    "language": "typescript",
+    "entry": "index.ts",
+    "protocol": 2
   },
   "models": [
     {
       "id": "glm-5.2",
-      "upstreamId": "glm-5.2",
-      "rate": 1,
-      "maxTokens": 131072,
-      "description": "智谱 GLM-5.2 主力通用模型"
+      "upstreamId": "cn:glm-5.2"
     },
     {
       "id": "glm-5.3",
-      "upstreamId": "glm-5.3",
-      "rate": 1.5,
-      "maxTokens": 131072,
-      "description": "智谱 GLM-5.3 前沿大模型"
-    },
-    {
-      "id": "deepseek-v3",
-      "upstreamId": "deepseek-v3",
-      "rate": 1,
-      "maxTokens": 65536,
-      "description": "DeepSeek-V3 代码与通用推理"
-    },
-    {
-      "id": "deepseek-r1",
-      "upstreamId": "deepseek-r1",
-      "rate": 2,
-      "maxTokens": 65536,
-      "description": "DeepSeek-R1 深度长思维链思考模型"
+      "upstreamId": "cn:glm-5.3"
     },
     {
       "id": "deepseek-v4.1-flash",
-      "upstreamId": "deepseek-v4.1-flash",
-      "rate": 0.5,
-      "maxTokens": 32000,
-      "description": "DeepSeek-V4.1 Flash 极速轻量模型"
+      "upstreamId": "cn:deepseek-v4.1-flash"
     }
   ],
-  "errorRules": [
-    {
-      "httpStatus": 429,
-      "substring": "rate limit",
-      "action": "cooldown",
-      "cooldown": 600
-    },
-    {
-      "httpStatus": 401,
-      "substring": "token expired",
-      "action": "refresh_token",
-      "cooldown": 0
-    },
-    {
-      "httpStatus": 403,
-      "substring": "insufficient balance",
-      "action": "disable_account",
-      "cooldown": 3600
-    }
-  ],
+  "config": {
+    "baseUrl": "http://127.0.0.1:7863",
+    "chatPath": "/v1/chat/completions",
+    "modelsPath": "/v1/models",
+    "timeoutSeconds": 120
+  },
+  "specVersion": 2,
   "actions": [
     {
-      "id": "oauth_login",
-      "label": "OAuth 设备授权",
-      "description": "调用腾讯 CodeBuddy 官方 OAuth 设备码流添加新凭据",
-      "style": "primary"
+      "id": "gateway_accounts",
+      "label": "查看原网关账号状态",
+      "description": "只读展示原网关的缓存状态；积分可能陈旧或未知，不直接查询上游。",
+      "scope": "account",
+      "idempotency": "read",
+      "timeoutSeconds": 20,
+      "required": true,
+      "inputSchema": {
+        "type": "object",
+        "properties": {},
+        "additionalProperties": false
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "source": {
+            "type": "string",
+            "enum": [
+              "gateway_cache"
+            ]
+          },
+          "truncated": {
+            "type": "boolean"
+          },
+          "accounts": {
+            "type": "array",
+            "maxItems": 1000,
+            "items": {
+              "type": "object",
+              "properties": {
+                "uid": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 256
+                },
+                "nickname": {
+                  "type": "string",
+                  "maxLength": 256
+                },
+                "realm": {
+                  "type": "string",
+                  "maxLength": 32
+                },
+                "cachedCredits": {
+                  "type": "number",
+                  "minimum": 0
+                },
+                "cachedCreditsTotal": {
+                  "type": "number",
+                  "minimum": 0
+                },
+                "disabled": {
+                  "type": "boolean"
+                },
+                "paused": {
+                  "type": "boolean"
+                },
+                "cooling": {
+                  "type": "boolean"
+                }
+              },
+              "required": [
+                "uid",
+                "nickname",
+                "realm"
+              ],
+              "additionalProperties": false
+            }
+          }
+        },
+        "required": [
+          "source",
+          "truncated",
+          "accounts"
+        ],
+        "additionalProperties": false
+      }
     },
     {
-      "id": "checkin",
-      "label": "每日签到",
-      "description": "触发全账号每日签到任务与连登奖励",
-      "style": "secondary"
+      "id": "gateway_account_pause",
+      "label": "暂停原网关账号选号",
+      "description": "仅操作原 WorkBuddy 网关中指定账号；超时后请先核对原网关状态。",
+      "scope": "account",
+      "idempotency": "side_effect",
+      "concurrencyKey": "gateway-account-state",
+      "timeoutSeconds": 20,
+      "required": true,
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "uid": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64
+          }
+        },
+        "required": [
+          "uid"
+        ],
+        "additionalProperties": false
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "ok": {
+            "type": "boolean",
+            "enum": [
+              true
+            ]
+          }
+        },
+        "required": [
+          "ok"
+        ],
+        "additionalProperties": false
+      }
     },
     {
-      "id": "run_tasks",
-      "label": "执行 17 个成长任务",
-      "description": "一键纯 API 完成全量成长计划任务并自动领奖",
-      "style": "secondary"
-    },
-    {
-      "id": "test_connection",
-      "label": "测试上游连通性",
-      "description": "探测 copilot.tencent.com 网络与证书状态",
-      "style": "secondary"
+      "id": "gateway_account_resume",
+      "label": "恢复原网关账号选号",
+      "description": "仅操作原 WorkBuddy 网关中指定账号；超时后请先核对原网关状态。",
+      "scope": "account",
+      "idempotency": "side_effect",
+      "concurrencyKey": "gateway-account-state",
+      "timeoutSeconds": 20,
+      "required": true,
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "uid": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64
+          }
+        },
+        "required": [
+          "uid"
+        ],
+        "additionalProperties": false
+      },
+      "outputSchema": {
+        "type": "object",
+        "properties": {
+          "ok": {
+            "type": "boolean",
+            "enum": [
+              true
+            ]
+          }
+        },
+        "required": [
+          "ok"
+        ],
+        "additionalProperties": false
+      }
     }
-  ],
-  "configSchema": [
-    {
-      "key": "device_token",
-      "label": "自定义设备 Token (可选)",
-      "type": "text",
-      "placeholder": "留空自动按官方协议生成",
-      "description": "腾讯 WorkBuddy 出站请求携带的设备指纹"
-    },
-    {
-      "key": "proxy",
-      "label": "专属出站代理 (可选)",
-      "type": "text",
-      "placeholder": "http://127.0.0.1:7890",
-      "description": "针对 WorkBuddy 独立配置的代理通道"
-    }
-  ],
-  "runtime": {
-    "language": "typescript",
-    "entry": "index.ts",
-    "protocol": 1
-  },
-  "config": {
-    "baseUrl": "https://copilot.tencent.com",
-    "chatPath": "/v2/chat/completions",
-    "timeoutSeconds": 120,
-    "headers": {
-      "Origin": "https://www.codebuddy.cn",
-      "Referer": "https://www.codebuddy.cn/",
-      "User-Agent": "WorkBuddy/5.5.4 WorkBuddy/5.5.4 CLI/2.137.1",
-      "X-IDE-Product": "WorkBuddy",
-      "X-IDE-Version": "5.5.4",
-      "X-Product": "WorkBuddy"
-    },
-    "apiKey": ""
-  }
+  ]
 }

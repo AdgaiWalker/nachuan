@@ -1,19 +1,11 @@
-# Tencent WorkBuddy 2API
+# 本地 WorkBuddy 网关适配器
 
-> 腾讯 WorkBuddy / CodeBuddy 官方逆向 Cordis 插件，支持 OAuth 设备流授权、三段式 UA 指纹伪装与积分自动维护
+此插件将聊天请求转发到本机 `http://127.0.0.1:7863` 的 WorkBuddy 兼容网关。WorkBuddy 账号和额度仍由该服务管理；此处添加的账号凭证是**本地网关 API Key**，不是 WorkBuddy 平台账号凭证。
 
-## 插件元数据
-- **包名**: `2api-plugin-workbuddy`
-- **版本**: `1.0.0`
-- **上游 BaseURL**: `https://copilot.tencent.com`
-- **鉴权模式**: `oauth_device`
+模型列表是静态映射，使用前需确认本地网关的 `/v1/models` 包含对应的 `cn:` 模型；测活至少要发现一个映射模型。插件不实现 WorkBuddy 专属登录、签到或任务。若本地服务不在 7863，应通过插件配置调整地址；不要将请求指向当前纳川宿主，避免形成循环。
 
-## 聚合支持的模型
-- `glm-5.2` (上游映射: `glm-5.2`, 倍率: `1.00`)
-- `glm-5.3` (上游映射: `glm-5.3`, 倍率: `1.50`)
-- `deepseek-v3` (上游映射: `deepseek-v3`, 倍率: `1.00`)
-- `deepseek-r1` (上游映射: `deepseek-r1`, 倍率: `2.00`)
-- `deepseek-v4.1-flash` (上游映射: `deepseek-v4.1-flash`, 倍率: `0.50`)
+在纳川控制台添加 WorkBuddy 插件账号，填入本地网关的 API Key。该密钥也可访问原网关管理接口，需按管理员密钥保护；只在本机录入，不要提交或粘贴到聊天中。调用模型使用 `workbuddy:glm-5.2` 等纳川模型 ID。
 
-## 安装与生效
-本插件由 **2API Agent 编译器** 自动转译产出，在 `nachuan` 宿主中配置 `cordis.patch.yml` 即可实现零重启热加载。
+`gateway_accounts` 是手动触发的只读动作，读取原网关 `/status` 的账号缓存并只返回白名单字段。缓存缺少权威更新时间；积分可能陈旧，0 也可能表示未知。该列表不是纳川账号的额度，通用 quota 仍标记不支持。上游响应中的 `usage.credit` 仅在为有限非负数字时按 `workbuddy_credit` 单位计入账本；未提供或格式不合法时不估算。
+
+`gateway_account_pause` 和 `gateway_account_resume` 是需要幂等键的手动动作，作用于原网关指定账号的选号状态；暂停不停止保活等任务。超时或未确认时先到原网关核对状态，不自动重试。这两个动作目前只经过假网关测试，尚未对真实账号操作。

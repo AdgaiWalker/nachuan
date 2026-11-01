@@ -1,0 +1,423 @@
+[
+  {
+    "name": "session-valid",
+    "schema": {
+      "type": "object",
+      "properties": {
+        "cookie": {
+          "type": "string",
+          "minLength": 2
+        },
+        "csrf": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "cookie",
+        "csrf"
+      ],
+      "additionalProperties": false
+    },
+    "value": {
+      "cookie": "abc",
+      "csrf": "def"
+    },
+    "valid": true
+  },
+  {
+    "name": "session-required",
+    "schema": {
+      "type": "object",
+      "properties": {
+        "cookie": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "cookie"
+      ]
+    },
+    "value": {},
+    "valid": false
+  },
+  {
+    "name": "unknown-field",
+    "schema": {
+      "type": "object",
+      "properties": {},
+      "additionalProperties": false
+    },
+    "value": {
+      "extra": 1
+    },
+    "valid": false
+  },
+  {
+    "name": "bool-is-not-number",
+    "schema": {
+      "type": "integer"
+    },
+    "value": true,
+    "valid": false
+  },
+  {
+    "name": "unicode-length",
+    "schema": {
+      "type": "string",
+      "maxLength": 1
+    },
+    "value": "🐳",
+    "valid": true
+  },
+  {
+    "name": "range",
+    "schema": {
+      "type": "number",
+      "minimum": 0,
+      "maximum": 1
+    },
+    "value": 2,
+    "valid": false
+  },
+  {
+    "name": "array-items",
+    "schema": {
+      "type": "array",
+      "items": {
+        "type": "integer"
+      },
+      "minItems": 1
+    },
+    "value": [
+      1,
+      2
+    ],
+    "valid": true
+  },
+  {
+    "name": "array-bad-item",
+    "schema": {
+      "type": "array",
+      "items": {
+        "type": "integer"
+      }
+    },
+    "value": [
+      "x"
+    ],
+    "valid": false
+  },
+  {
+    "name": "enum",
+    "schema": {
+      "type": "string",
+      "enum": [
+        "a",
+        "b"
+      ]
+    },
+    "value": "c",
+    "valid": false
+  },
+  {
+    "name": "unsupported-keyword",
+    "schema": {
+      "type": "object",
+      "oneOf": []
+    },
+    "schemaValid": false
+  },
+  {
+    "name": "missing-type",
+    "schema": {},
+    "schemaValid": false
+  },
+  {
+    "name": "bad-array",
+    "schema": {
+      "type": "array"
+    },
+    "schemaValid": false
+  },
+  {
+    "name": "bad-required",
+    "schema": {
+      "type": "object",
+      "required": [
+        "x"
+      ]
+    },
+    "schemaValid": false
+  },
+  {
+    "name": "bad-bound",
+    "schema": {
+      "type": "string",
+      "minLength": 5,
+      "maxLength": 1
+    },
+    "schemaValid": false
+  },
+  {
+    "name": "float-integer",
+    "schema": {
+      "type": "integer"
+    },
+    "value": 1.0,
+    "valid": true
+  },
+  {
+    "name": "object-enum-order",
+    "schema": {
+      "type": "object",
+      "enum": [
+        {
+          "a": 1,
+          "b": 2
+        }
+      ]
+    },
+    "value": {
+      "b": 2,
+      "a": 1
+    },
+    "valid": true
+  },
+  {
+    "name": "legacy-api-key",
+    "schema": {
+      "type": "object",
+      "properties": {
+        "apiKey": {
+          "type": "string",
+          "minLength": 1
+        },
+        "accessToken": {
+          "type": "string",
+          "minLength": 1
+        }
+      },
+      "anyOf": [
+        {
+          "type": "object",
+          "properties": {
+            "apiKey": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "apiKey"
+          ]
+        },
+        {
+          "type": "object",
+          "properties": {
+            "accessToken": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "accessToken"
+          ]
+        }
+      ]
+    },
+    "value": {
+      "apiKey": "valid"
+    },
+    "valid": true
+  },
+  {
+    "name": "legacy-access-token",
+    "schema": {
+      "type": "object",
+      "properties": {
+        "apiKey": {
+          "type": "string",
+          "minLength": 1
+        },
+        "accessToken": {
+          "type": "string",
+          "minLength": 1
+        }
+      },
+      "anyOf": [
+        {
+          "type": "object",
+          "properties": {
+            "apiKey": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "apiKey"
+          ]
+        },
+        {
+          "type": "object",
+          "properties": {
+            "accessToken": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "accessToken"
+          ]
+        }
+      ]
+    },
+    "value": {
+      "accessToken": "valid"
+    },
+    "valid": true
+  },
+  {
+    "name": "legacy-empty",
+    "schema": {
+      "type": "object",
+      "properties": {
+        "apiKey": {
+          "type": "string",
+          "minLength": 1
+        },
+        "accessToken": {
+          "type": "string",
+          "minLength": 1
+        }
+      },
+      "anyOf": [
+        {
+          "type": "object",
+          "properties": {
+            "apiKey": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "apiKey"
+          ]
+        },
+        {
+          "type": "object",
+          "properties": {
+            "accessToken": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "accessToken"
+          ]
+        }
+      ]
+    },
+    "value": {},
+    "valid": false
+  },
+  {
+    "name": "legacy-empty-token",
+    "schema": {
+      "type": "object",
+      "properties": {
+        "apiKey": {
+          "type": "string",
+          "minLength": 1
+        },
+        "accessToken": {
+          "type": "string",
+          "minLength": 1
+        }
+      },
+      "anyOf": [
+        {
+          "type": "object",
+          "properties": {
+            "apiKey": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "apiKey"
+          ]
+        },
+        {
+          "type": "object",
+          "properties": {
+            "accessToken": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "accessToken"
+          ]
+        }
+      ]
+    },
+    "value": {
+      "accessToken": ""
+    },
+    "valid": false
+  },
+  {
+    "name": "empty-anyof",
+    "schema": {
+      "type": "object",
+      "anyOf": []
+    },
+    "schemaValid": false
+  },
+  {
+    "name": "nested-enum-bool-vs-number",
+    "schema": {
+      "type": "object",
+      "enum": [
+        {
+          "level": 1
+        }
+      ]
+    },
+    "value": {
+      "level": true
+    },
+    "valid": false
+  },
+  {
+    "name": "nested-enum-numeric-equal",
+    "schema": {
+      "type": "object",
+      "enum": [
+        {
+          "level": 1
+        }
+      ]
+    },
+    "value": {
+      "level": 1.0
+    },
+    "valid": true
+  },
+  {
+    "name": "nested-enum-array-bool-vs-number",
+    "schema": {
+      "type": "array",
+      "items": {
+        "type": "integer"
+      },
+      "enum": [
+        [
+          0
+        ]
+      ]
+    },
+    "value": [
+      false
+    ],
+    "valid": false
+  },
+  {
+    "name": "invalid-array-type",
+    "schema": {
+      "type": []
+    },
+    "schemaValid": false
+  }
+]

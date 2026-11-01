@@ -9,6 +9,7 @@ import asyncio
 import json
 import os
 import time
+from decimal import Decimal, InvalidOperation
 
 
 @dataclass(frozen=True, slots=True)
@@ -29,6 +30,7 @@ class UsageRecord:
     vendor_unit: str = ""
     vendor_remaining: float | None = None
     quota_reset_at: float | None = None
+    vendor_dimension: str = ""
 
 
 class Ledger:
@@ -113,6 +115,8 @@ class Ledger:
         self.load()
         records = [record for record in self._records.values() if (not plugin or record.plugin == plugin) and (not account or record.account == account)]
         totals = Counter()
+        settlements = {}
+        unclassified = 0
         for record in records:
             for key in ("prompt_tokens", "completion_tokens", "total_tokens", "duration_ms"):
                 totals[key] += getattr(record, key)
@@ -120,14 +124,23 @@ class Ledger:
             totals["successes"] += int(record.success)
             totals["failures"] += int(not record.success)
             if record.vendor_cost is not None:
-                totals["vendor_cost"] += record.vendor_cost
+                try: amount=Decimal(str(record.vendor_cost))
+                except InvalidOperation: amount=Decimal('NaN')
+                if not record.vendor_unit or not amount.is_finite() or amount<0:
+                    unclassified+=1
+                else:
+                    key=(record.plugin,record.vendor_unit,record.vendor_dimension)
+                    settlements[key]=settlements.get(key,Decimal(0))+amount
         by_plugin: dict[str, Counter] = {}
         for record in records:
             metric = by_plugin.setdefault(record.plugin, Counter())
             metric["requests"] += 1
             metric["total_tokens"] += record.total_tokens
         return {
-            "totals": {**totals, "success_rate": round(totals["successes"] / totals["requests"] * 100, 1) if totals["requests"] else 100.0},
+            "settlements": [{'plugin':p,'unit':u,'dimension':d,'cost':str(v)} for (p,u,d),v in settlements.items()],
+            "settlement_state": 'mixed' if len(settlements)>1 else 'known' if settlements else 'unknown',
+            "unclassified_settlements": unclassified,
+            "totals": {**totals, **({"vendor_cost": float(next(iter(settlements.values()))) if len(settlements)==1 and not unclassified else None} if settlements or unclassified else {}), "success_rate": round(totals["successes"] / totals["requests"] * 100, 1) if totals["requests"] else 100.0},
             "plugins": by_plugin,
             "records": [asdict(record) for record in sorted(records, key=lambda item: item.timestamp, reverse=True)[:max(1, min(limit, 500))]],
         }

@@ -1,6 +1,6 @@
 {
   "name": "nachuan-dev-handoff",
-  "version": "0.2.0",
+  "version": "0.3.1",
   "private": true,
   "description": "Nachuan Python kernel and TypeScript plugin development handoff",
   "packageManager": "pnpm@12.0.0",

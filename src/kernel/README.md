@@ -55,7 +55,7 @@ python3 -m nachuan.app --port 7865
 }
 ```
 
-旧的 `plugins` 数组格式仍可读。`config.apiKey` 是上游业务凭证，不是网关密钥；当前真实插件需要用户自行配置有效上游凭证。
+旧的 `plugins` 数组格式仍可读。`config.apiKey` 是旧通用适配器可读取的上游配置字段，不是纳川网关密钥。WorkBuddy 插件已通过本地既有网关实测普通及流式聊天；其专属账号和额度仍由原服务管理，其他平台真实上游协议未完成验收。
 
 ## 账号凭证
 
@@ -69,10 +69,10 @@ plugins/2api-plugin-qwen/credentials/account-1.json
 { "apiKey": "你的上游凭证", "enabled": true, "maxInFlight": 2 }
 ```
 
-凭证文件不进入内核状态快照或日志。`state.json` 仅保存健康状态，权限为 `0600`。没有账号的插件显示 `credential_missing`，不会路由请求。
+宿主写入的凭证和状态文件使用私有权限；手工放入的旧文件需要自行检查权限，读取时不会自动修改。`state.json` 保存账号状态及计数，不保存凭证值。没有账号的插件显示 `credential_missing`，不会路由请求。
 
 - `429`：账号冷却后切换其他账号。
-- `401/403`：标记 `reauth_required`，需更新凭证，不自动复活。
+- `401/403`：标记 `reauth_required`；协商了刷新 handler 且账号允许刷新时，后续巡检会尝试刷新，否则需要更新凭证。
 - `402`：额度耗尽并隔离。
 - 连续传输错误：触发账号熔断，到期恢复。
 - 插件崩溃：停止新路由；显式重载可恢复。
@@ -85,4 +85,10 @@ python3 -m unittest discover -s tests -v
 
 测试使用本地假上游，真实跨越 Python → Node → HTTP，覆盖非流式、SSE、鉴权、禁用、裸模型冲突、坏契约 last-good、显式跨插件故障转移、取消释放、热配置回滚、调度去重、崩溃摘除和 100 笔并发账本守恒。不会请求真实 AI 平台。
 
-当前验证基线：Python 44 项测试、TypeScript 4 项测试、控制台 TypeScript/Vite 构建全部通过。平台专用协议与真实凭证验收仍属于下一阶段，不纳入本次通用内核完成声明。
+V2.3 历史验证基线：Python 96 项测试、TypeScript 29 项测试、控制台逻辑测试和 TypeScript/Vite 构建通过。WorkBuddy 桥接另有本机聊天实测；平台专用协议与完整 DoD 尚未验收，不纳入通用内核完成声明。
+
+## 通用内核 V2
+
+新增 schema.py、credentials.py、actions.py、quota.py 和 control.py。协议 2 支持 schema 凭证、动作和额度查询；协议 1 保持兼容。完整 API、数据迁移和限制见 `../../docs/内核V2验收记录_2026-10-31.md`。
+
+V2.1：新增账号在插件协商 credentialRefresh 后默认启用自动刷新，可通过账号 POST/PATCH 的 refreshEnabled 布尔值关闭或开启；旧文件的 refreshSupported 策略保持兼容。动作历史及 action-runs.initialized 标记需一起备份，不可通过删除历史重试副作用。

@@ -1,5 +1,5 @@
 import type { BusinessPlugin, ChatParams, ModelContract, PluginInit } from './contracts.js'
-import { classifyHTTPStatus } from './contracts.js'
+import { BusinessError, classifyHTTPStatus } from './contracts.js'
 import { normalizeChunk, sseData } from './normalize.js'
 
 /** 通用 OpenAI 兼容出站适配；平台特有的转换由各自业务插件提供。 */
@@ -38,8 +38,21 @@ export function openAIBusiness(models: ModelContract[]) {
         const response = await upstream(params, true, signal)
         for await (const data of sseData(response)) {
           if (data.trim() === '[DONE]') return
-          yield JSON.stringify(normalizeChunk(JSON.parse(data), params.model))
+          const payload = JSON.parse(data)
+          if (payload?.error) {
+            const error = payload.error
+            const code = String(error.code ?? error.type ?? '')
+            const kind = code.includes('quota') ? 'exhausted'
+              : code.includes('rate_limit') ? 'rate_limit'
+              : code.includes('auth') || code.includes('api_key') ? 'reauth'
+              : code.includes('invalid') ? 'invalid_request' : 'transient'
+            throw new BusinessError(kind, String(error.message ?? '上游流式错误'), kind === 'exhausted' ? 0 : 60)
+          }
+          yield JSON.stringify(normalizeChunk(payload, params.model))
         }
+        // A clean TCP EOF is not proof that an OpenAI-compatible stream finished.
+        // Surface truncation instead of letting the host synthesize a successful [DONE].
+        throw new BusinessError('transient', '上游流意外结束，未收到 [DONE] 标记')
       },
     }
   }

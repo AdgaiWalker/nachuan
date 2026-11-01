@@ -14,8 +14,12 @@ import logging
 import os
 import random
 import time
+import weakref
+from . import credentials
+from .schema import LEGACY_CREDENTIAL
 
 log = logging.getLogger("nachuan.accounts")
+_LIVE_ACCOUNTS = weakref.WeakValueDictionary()
 
 
 class AccountState(StrEnum):
@@ -43,7 +47,7 @@ class Failure:
     message: str = ""
 
 
-@dataclass(slots=True)
+@dataclass(slots=True, weakref_slot=True)
 class Account:
     id: str
     credential_file: Path
@@ -60,14 +64,17 @@ class Account:
     credential_generation: int = 1
     last_refresh_at: float = 0
     refresh_supported: bool = False
+    refresh_enabled: bool | None = None
 
     def snapshot(self) -> dict[str, Any]:
         value = asdict(self)
         value.pop("credential_file")
+        value["credentialConfigured"]=self.credential_file.is_file()
+        value["generation"]=self.credential_generation
         return value
 
     def credential(self) -> dict[str, Any]:
-        value = json.loads(self.credential_file.read_text(encoding="utf-8"))
+        value = credentials.read(self.credential_file)["secret"]
         if not isinstance(value, dict):
             raise ValueError("凭证文件必须为 JSON 对象")
         return value
@@ -80,13 +87,14 @@ class Lease:
 
 
 class AccountPool:
-    def __init__(self, directory: str | Path, *, breaker_threshold: int = 3, breaker_seconds: float = 300, random_source: random.Random | None = None):
+    def __init__(self, directory: str | Path, *, breaker_threshold: int = 3, breaker_seconds: float = 300, random_source: random.Random | None = None, credential_schema: dict | None = None):
+        self.credential_schema = credential_schema or LEGACY_CREDENTIAL
         self.directory = Path(directory)
         self.breaker_threshold = breaker_threshold
         self.breaker_seconds = breaker_seconds
         self.random = random_source or random.Random()
         self._accounts: dict[str, Account] = {}
-        self._lock = asyncio.Lock()
+        self._lock = credentials.lock_for(self.directory)
         self._dirty = False
         self._save_lock = asyncio.Lock()
         self._saver: asyncio.Task[None] | None = None
@@ -94,25 +102,47 @@ class AccountPool:
 
     def load(self) -> None:
         self._accounts.clear()
+        restored=set()
         if not self.directory.is_dir():
             return
         for path in sorted(self.directory.glob("*.json")):
             if path.name == "state.json":
                 continue
             try:
-                raw = json.loads(path.read_text(encoding="utf-8"))
+                envelope = credentials.read(path)
+                from .schema import validate
+                validate(envelope['secret'],self.credential_schema)
+                raw = {**envelope['account'], 'generation':envelope['generation'], 'lastRefreshAt':envelope.get('updatedAt',0)}
                 if not isinstance(raw, dict):
                     continue
-                self._accounts[path.stem] = Account(path.stem, path, bool(raw.get("enabled", True)), max_in_flight=max(1, int(raw.get("maxInFlight", 2))), credential_generation=int(raw.get("generation", 1)), last_refresh_at=float(raw.get("lastRefreshAt", 0)), refresh_supported=bool(raw.get("refreshSupported", False)))
+                key=str(path.resolve())
+                account=_LIVE_ACCOUNTS.get(key)
+                if account is None:
+                    account=Account(path.stem, path, bool(raw.get("enabled", True)), max_in_flight=max(1, int(raw.get("maxInFlight", 2))), credential_generation=int(raw.get("generation", 1)), last_refresh_at=float(raw.get("lastRefreshAt", 0)), refresh_supported=bool(raw.get("refreshSupported", False)))
+                    _LIVE_ACCOUNTS[key]=account
+                    restored.add(path.stem)
+                account.enabled=bool(raw.get('enabled',True))
+                account.max_in_flight=max(1,int(raw.get('maxInFlight',2)))
+                account.credential_generation=int(raw.get('generation',1))
+                account.refresh_enabled=raw.get('refreshEnabled')
+                if not account.enabled: account.state=AccountState.DISABLED
+                elif account.state==AccountState.DISABLED: account.state=AccountState.READY
+                self._accounts[path.stem]=account
             except (OSError, ValueError) as exc:
                 log.warning("跳过不可读凭证 %s: %s", path.name, exc)
         state_path = self.directory / "state.json"
         if state_path.exists():
             try:
                 state = json.loads(state_path.read_text(encoding="utf-8"))
+                scrubbed=False
+                for saved in state.get('accounts',{}).values():
+                    if isinstance(saved,dict) and saved.get('reason'):
+                        saved['reason']='previous_failure'; scrubbed=True
+                if scrubbed: credentials.atomic(state_path,state)
                 for uid, saved in state.get("accounts", {}).items():
-                    if account := self._accounts.get(uid):
+                    if uid in restored and (account := self._accounts.get(uid)):
                         account.state = AccountState(saved.get("state", AccountState.READY)) if account.enabled else AccountState.DISABLED
+                        if account.enabled and account.state == AccountState.DISABLED: account.state=AccountState.READY
                         account.reason = str(saved.get("reason", ""))
                         account.until = float(saved.get("until", 0))
                         account.failures = int(saved.get("failures", 0))
@@ -134,7 +164,8 @@ class AccountPool:
     async def save(self) -> None:
         async with self._save_lock:
             async with self._lock:
-                payload = {"accounts": {uid: account.snapshot() for uid, account in self._accounts.items()}}
+                live={account.id:account for account in list(_LIVE_ACCOUNTS.values()) if account.credential_file.parent.resolve()==self.directory.resolve() and account.credential_file.exists()}
+                payload = {"accounts": {uid: account.snapshot() for uid, account in live.items()}}
                 self._dirty = False
             self.directory.mkdir(parents=True, exist_ok=True)
             self.directory.chmod(0o700)
@@ -146,7 +177,7 @@ class AccountPool:
             target.chmod(0o600)
 
     def _refresh(self, account: Account, now: float) -> None:
-        if account.state in {AccountState.COOLING, AccountState.EXHAUSTED, AccountState.CIRCUIT_OPEN} and account.until <= now:
+        if account.state in {AccountState.COOLING, AccountState.EXHAUSTED, AccountState.CIRCUIT_OPEN} and account.until > 0 and account.until <= now:
             account.state = AccountState.READY
             account.reason = ""
             account.until = 0
@@ -156,15 +187,24 @@ class AccountPool:
     def _available(self, now: float) -> list[Account]:
         result = []
         for account in self._accounts.values():
+            try:
+                envelope=credentials.read(account.credential_file)
+            except (OSError, ValueError, KeyError, TypeError):
+                continue
+            account.enabled=envelope['account']['enabled']
+            account.max_in_flight=envelope['account']['maxInFlight']
+            account.credential_generation=envelope['generation']
+            if not account.enabled: account.state=AccountState.DISABLED
+            elif account.state==AccountState.DISABLED: account.state=AccountState.READY
             self._refresh(account, now)
             if account.enabled and account.state == AccountState.READY and account.in_flight < account.max_in_flight:
                 result.append(account)
         result.sort(key=lambda item: (item.in_flight / item.max_in_flight, item.last_used, item.id))
         return result
 
-    async def acquire(self) -> Lease:
+    async def acquire(self, *, exclude=None) -> Lease:
         async with self._lock:
-            candidates = self._available(time.time())
+            candidates = [a for a in self._available(time.time()) if a.id not in (exclude or set())]
             if not candidates:
                 raise RuntimeError("没有可用账号")
             # 最优的两个账号中加权随机，避免持续固定打向同一凭证。
@@ -173,12 +213,15 @@ class AccountPool:
             account.total_requests += 1
             account.last_used = time.time()
             self._dirty = True
-        return Lease(account, lambda failure: self.release(account.id, failure))
+        generation=account.credential_generation
+        return Lease(account, lambda failure: self.release(account.id, failure, generation))
 
-    async def release(self, uid: str, failure: Failure | None) -> None:
+    async def release(self, uid: str, failure: Failure | None, generation: int | None = None) -> None:
         async with self._lock:
             account = self._accounts[uid]
             account.in_flight = max(0, account.in_flight - 1)
+            if generation is not None and generation != account.credential_generation:
+                return
             if failure is None:
                 account.failures = 0
                 account.reason = ""
@@ -186,7 +229,7 @@ class AccountPool:
                     account.state = AccountState.READY
             else:
                 account.total_failures += 1
-                account.reason = failure.message
+                account.reason = failure.kind.value
                 if failure.kind == FailureKind.REAUTH:
                     account.state = AccountState.REAUTH_REQUIRED
                 elif failure.kind == FailureKind.RATE_LIMIT:
@@ -194,7 +237,7 @@ class AccountPool:
                     account.until = time.time() + min(max(failure.retry_after, 1), 86400)
                 elif failure.kind == FailureKind.EXHAUSTED:
                     account.state = AccountState.EXHAUSTED
-                    account.until = time.time() + min(max(failure.retry_after, 3600), 86400)
+                    account.until = time.time() + min(failure.retry_after,86400) if failure.retry_after > 0 else 0
                 elif failure.kind in {FailureKind.TRANSIENT, FailureKind.UNKNOWN}:
                     account.failures += 1
                     if account.failures >= self.breaker_threshold:
@@ -202,59 +245,63 @@ class AccountPool:
                         account.until = time.time() + self.breaker_seconds
                 self._dirty = True
 
-    async def add(self, uid: str, credential: dict[str, Any], *, max_in_flight: int = 2) -> None:
-        if not uid or any(character not in "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789._-" for character in uid):
-            raise ValueError("账号标识仅支持字母、数字、点、下划线与连字符")
-        if not isinstance(credential.get("apiKey"), str) or not credential["apiKey"]:
-            raise ValueError("apiKey 不能为空")
-        path = self.directory / f"{uid}.json"
-        if path.exists():
-            raise FileExistsError("账号已存在")
-        payload = {key: value for key, value in credential.items() if key not in {"state", "reason", "until"}}
-        payload.update(enabled=True, maxInFlight=max_in_flight)
-        self.directory.mkdir(parents=True, exist_ok=True)
-        self.directory.chmod(0o700)
-        temporary = self.directory / f".{uid}.tmp"
-        temporary.write_text(json.dumps(payload, ensure_ascii=False), encoding="utf-8")
-        temporary.chmod(0o600)
-        temporary.replace(path)
-        path.chmod(0o600)
+    async def add(self, uid: str, credential: dict[str, Any], *, max_in_flight: int = 2, enabled: bool = True, refresh_enabled: bool | None = None) -> None:
+        credentials.account_id(uid)
+        if refresh_enabled is not None and type(refresh_enabled) is not bool: raise ValueError('invalid refreshEnabled')
+        if type(max_in_flight) is not int or not 1 <= max_in_flight <= 1000 or type(enabled) is not bool:
+            raise ValueError("invalid account settings")
         async with self._lock:
-            self._accounts[uid] = Account(uid, path, max_in_flight=max_in_flight)
-            self._dirty = True
+            path = self.directory / f"{uid}.json"
+            envelope = {'formatVersion':2,'generation':1,'updatedAt':time.time(),
+                        'account':{'enabled':enabled,'maxInFlight':max_in_flight,**({'refreshEnabled':refresh_enabled} if refresh_enabled is not None else {})},'secret':credential}
+            credentials.write(path,envelope,self.credential_schema,create=True)
+            self._accounts[uid] = Account(uid,path,enabled,state=AccountState.READY if enabled else AccountState.DISABLED,max_in_flight=max_in_flight,refresh_enabled=refresh_enabled)
+            _LIVE_ACCOUNTS[str(path.resolve())]=self._accounts[uid]
+            self._dirty=True
 
-    async def rotate(self, uid: str, credential: dict[str, Any], *, expected_generation: int | None = None, recovered: bool = False) -> None:
-        if uid not in self._accounts:
-            raise KeyError(uid)
-        if not isinstance(credential.get("apiKey", credential.get("accessToken")), str) or not credential.get("apiKey", credential.get("accessToken")):
-            raise ValueError("新凭证缺少 apiKey 或 accessToken")
+    async def rotate(self, uid: str, credential: dict[str, Any], *, expected_generation: int | None = None, recovered: bool = False, replace: bool = False) -> None:
         async with self._lock:
             account = self._accounts[uid]
-            if expected_generation is not None and account.credential_generation != expected_generation:
-                raise RuntimeError("凭证已被其他流程更新，放弃过期刷新结果")
-            current = account.credential()
-            current.update(credential)
-            current["generation"] = account.credential_generation + 1
-            current["lastRefreshAt"] = time.time()
-            temporary = account.credential_file.with_suffix(".tmp")
-            temporary.write_text(json.dumps(current, ensure_ascii=False), encoding="utf-8")
-            temporary.chmod(0o600)
-            os.replace(temporary, account.credential_file)
-            account.credential_file.chmod(0o600)
-            account.credential_generation += 1
-            account.last_refresh_at = time.time()
-            if recovered and account.state == AccountState.REAUTH_REQUIRED:
-                account.state = AccountState.READY
-                account.reason = ""
-                account.failures = 0
-            self._dirty = True
+            envelope = credentials.read(account.credential_file)
+            generation=envelope['generation']
+            if expected_generation is not None and generation != expected_generation:
+                raise credentials.GenerationConflict("credential generation conflict")
+            envelope['secret'] = credential if replace else {**envelope['secret'],**credential}
+            envelope['generation']=generation+1
+            envelope['updatedAt']=time.time()
+            credentials.write(account.credential_file,envelope,self.credential_schema)
+            account.credential_generation=generation+1
+            account.last_refresh_at=envelope['updatedAt']
+            if recovered and account.state != AccountState.DISABLED:
+                account.state=AccountState.READY if account.enabled else AccountState.DISABLED
+                account.reason=""
+                account.failures=0
+            self._dirty=True
+
+    async def patch(self, uid: str, *, enabled: bool | None = None, max_in_flight: int | None = None, refresh_enabled: bool | None = None) -> None:
+        if refresh_enabled is not None and type(refresh_enabled) is not bool: raise ValueError('invalid refreshEnabled')
+        if enabled is not None and type(enabled) is not bool: raise ValueError("enabled must be boolean")
+        if max_in_flight is not None and (type(max_in_flight) is not int or not 1 <= max_in_flight <= 1000): raise ValueError("invalid maxInFlight")
+        async with self._lock:
+            account=self._accounts[uid]
+            envelope=credentials.read(account.credential_file)
+            if enabled is not None:
+                envelope['account']['enabled']=enabled
+                account.enabled=enabled
+                if not enabled: account.state=AccountState.DISABLED
+                elif account.state == AccountState.DISABLED: account.state=AccountState.READY
+            if max_in_flight is not None:
+                envelope['account']['maxInFlight']=max_in_flight
+                account.max_in_flight=max_in_flight
+            if refresh_enabled is not None:
+                envelope['account']['refreshEnabled']=refresh_enabled
+            credentials.write(account.credential_file,envelope,self.credential_schema)
+            account.refresh_enabled=envelope['account'].get('refreshEnabled')
+            if account.refresh_enabled is False: account.refresh_supported=False
+            self._dirty=True
 
     async def set_enabled(self, uid: str, enabled: bool) -> None:
-        async with self._lock:
-            if uid not in self._accounts:
-                raise KeyError(uid)
-            self._accounts[uid].enabled = enabled
-            self._dirty = True
+        await self.patch(uid,enabled=enabled)
 
     def snapshot(self) -> list[dict[str, Any]]:
         return [account.snapshot() for _, account in sorted(self._accounts.items())]

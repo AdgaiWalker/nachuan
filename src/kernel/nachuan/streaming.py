@@ -15,12 +15,14 @@ class Usage:
     completion_tokens: int = 0
     total_tokens: int = 0
     first_chunk: dict[str, Any] | None = None
+    vendor: dict[str, Any] = field(default_factory=dict)
 
     def observe(self, chunk: dict[str, Any]) -> None:
         if self.first_chunk is None:
             self.first_chunk = chunk
         usage = chunk.get("usage")
         if isinstance(usage, dict):
+            if isinstance(usage.get("vendor"),dict): self.vendor=usage["vendor"]
             self.prompt_tokens = max(self.prompt_tokens, int(usage.get("prompt_tokens", 0) or 0))
             self.completion_tokens = max(self.completion_tokens, int(usage.get("completion_tokens", 0) or 0))
             self.total_tokens = max(self.total_tokens, int(usage.get("total_tokens", 0) or 0))
@@ -35,6 +37,7 @@ class StreamNormalizer:
     buffer: str = ""
     done: bool = False
     usage: Usage = field(default_factory=Usage)
+    _states: dict[int, StreamNormalizer] = field(default_factory=dict)
 
     def data(self, data: str) -> Iterator[dict[str, Any]]:
         """输入已归一化 data 载荷；[DONE] 是幂等终止信号。"""
@@ -60,7 +63,8 @@ class StreamNormalizer:
                 for key in ("content", "reasoning_content"):
                     if isinstance(delta.get(key), str) and delta[key]:
                         emitted_content = True
-                        yield from self._text(delta[key], key == "reasoning_content", chunk, index)
+                        state = self._states.setdefault(index, StreamNormalizer(self.model, self.request_id, self.created))
+                        yield from state._text(delta[key], key == "reasoning_content", chunk, index)
                 remainder = {key: value for key, value in delta.items() if key not in {"content", "reasoning_content", "reasoning"}}
                 if remainder or choice.get("finish_reason") is not None:
                     control = dict(choice)
@@ -122,6 +126,10 @@ class StreamNormalizer:
         }
 
     def finish(self) -> Iterator[dict[str, Any]]:
+        for index, state in self._states.items():
+            if state.buffer:
+                yield state._chunk(state.buffer, state.in_thought, {}, index)
+                state.buffer = ""
         if self.buffer:
             yield self._chunk(self.buffer, self.in_thought, {})
             self.buffer = ""

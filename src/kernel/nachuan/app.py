@@ -1,6 +1,7 @@
 """Python OpenAI 兼容宿主；不含 Web 管理界面与具体平台逻辑。"""
 from __future__ import annotations
 
+from dataclasses import asdict
 import argparse
 import asyncio
 import hmac
@@ -19,6 +20,7 @@ from .monitoring import Monitor
 from .kernel import Kernel
 from .config import ConfigStore, HostConfig
 from .tasks import TaskSpec
+from .control import routes as control_routes, errors as control_errors
 
 
 KERNEL_KEY = web.AppKey("kernel", object)
@@ -28,7 +30,7 @@ STREAM_TICKETS: dict[str, float] = {}
 
 
 def create_app(kernel: Kernel, api_key: str = "", config_path: str | Path | None = None) -> web.Application:
-    app = web.Application(middlewares=[auth_middleware(api_key)], client_max_size=kernel.config.max_request_bytes)
+    app = web.Application(middlewares=[auth_middleware(api_key),control_errors], client_max_size=kernel.config.max_request_bytes)
     app.on_cleanup.append(lambda app: kernel.close())
     app.router.add_get("/health", health)
     app.router.add_get("/kernel/monitor", monitor_snapshot)
@@ -39,14 +41,13 @@ def create_app(kernel: Kernel, api_key: str = "", config_path: str | Path | None
     app.router.add_post("/v1/chat/completions", chat)
     app.router.add_get("/kernel/status", status)
     app.router.add_get("/kernel/plugins", plugins)
-    app.router.add_post("/kernel/plugins/{name}/accounts", add_account)
+    control_routes(app,KERNEL_KEY)
     app.router.add_post("/kernel/reload", reload_kernel)
     app.router.add_post("/kernel/health/check", check_health)
     app.router.add_get("/kernel/tasks", tasks)
     app.router.add_post("/kernel/tasks/{id}/run", run_task)
     app.router.add_get("/kernel/config", get_config)
     app.router.add_put("/kernel/config", put_config)
-    app.router.add_post("/kernel/plugins/{name}/accounts/{uid}/rotate", rotate_account)
     app[KERNEL_KEY] = kernel
     app[MONITOR_KEY] = kernel.monitor
     app[CONFIG_KEY] = ConfigStore(config_path or kernel.plugins_dir.parent / "backend" / "config.local.json")
@@ -56,6 +57,8 @@ def create_app(kernel: Kernel, api_key: str = "", config_path: str | Path | None
 def auth_middleware(api_key: str):
     @web.middleware
     async def authenticate(request: web.Request, handler):
+        # Each new request uses the live limit, including after a hot update.
+        request._client_max_size = request.app[KERNEL_KEY].config.max_request_bytes
         if api_key and request.path != "/health":
             authorization = request.headers.get("Authorization", "")
             ticket = request.query.get("ticket", "")
@@ -121,30 +124,11 @@ async def models(request: web.Request) -> web.Response:
 
 
 async def status(request: web.Request) -> web.Response:
-    return web.json_response(request.app[KERNEL_KEY].status.__dict__.copy())
+    return web.json_response({**asdict(request.app[KERNEL_KEY].status), "actionHistory": request.app[KERNEL_KEY].actions.status()})
 
 
 async def plugins(request: web.Request) -> web.Response:
-    return web.json_response({"plugins": request.app[KERNEL_KEY].list_plugins()})
-
-
-async def add_account(request: web.Request) -> web.Response:
-    plugin = request.app[KERNEL_KEY]._snapshot.plugins.get(request.match_info["name"])
-    if not plugin:
-        return web.json_response({"error": "插件不存在"}, status=404)
-    try:
-        body = await request.json()
-        if plugin.account_pool is None:
-            from .accounts import AccountPool
-            plugin.account_pool = AccountPool(plugin.directory / "credentials")
-        await plugin.account_pool.add(str(body.get("id", "")), {"apiKey": body.get("apiKey")})
-        request.app[MONITOR_KEY].log("info", plugin.name, "账号凭证已更新", account=str(body.get("id", "")))
-        await request.app[KERNEL_KEY].load()
-        return web.json_response({"ok": True}, status=201)
-    except FileExistsError:
-        return web.json_response({"error": "账号已存在"}, status=409)
-    except (ValueError, TypeError) as exc:
-        return web.json_response({"error": str(exc)}, status=400)
+    return web.json_response(request.app[KERNEL_KEY].public({"plugins": request.app[KERNEL_KEY].list_plugins()}))
 
 
 async def get_config(request: web.Request) -> web.Response:
@@ -168,7 +152,7 @@ async def run_task(request: web.Request) -> web.Response:
     task_id = request.match_info["id"]
     for plugin in request.app[KERNEL_KEY]._snapshot.plugins.values():
         for task in plugin.spec.tasks:
-            spec = TaskSpec(f"{plugin.name}:{task['action']}", plugin.name, task["action"], float(task["intervalSeconds"]))
+            spec = TaskSpec(f"{plugin.name}:{task.get('id', task['action'])}", plugin.name, task["action"], float(task["intervalSeconds"]), task.get("accountId"), task.get("input",{}))
             if spec.id == task_id:
                 success = await request.app[KERNEL_KEY].scheduler.run(spec, request.app[KERNEL_KEY].run_task)
                 return web.json_response({"ok": success})
@@ -179,30 +163,14 @@ async def check_health(request: web.Request) -> web.Response:
     ran = await request.app[KERNEL_KEY].health_runner.run_once(request.app[KERNEL_KEY].check_health)
     if not ran:
         return web.json_response({"error": "巡检正在执行"}, status=409)
-    return web.json_response({"ok": True, "plugins": request.app[KERNEL_KEY].list_plugins()})
-
-
-async def rotate_account(request: web.Request) -> web.Response:
-    plugin = request.app[KERNEL_KEY]._snapshot.plugins.get(request.match_info["name"])
-    if not plugin or not plugin.account_pool:
-        return web.json_response({"error": "插件或账号池不存在"}, status=404)
-    try:
-        body = await request.json()
-        uid = request.match_info["uid"]
-        await plugin.account_pool.rotate(uid, {"apiKey": body.get("apiKey")}, recovered=True)
-        request.app[MONITOR_KEY].log("info", plugin.name, "凭证已安全轮换", account=uid)
-        return web.json_response({"ok": True})
-    except KeyError:
-        return web.json_response({"error": "账号不存在"}, status=404)
-    except (ValueError, RuntimeError) as exc:
-        return web.json_response({"error": str(exc)}, status=400)
+    return web.json_response(request.app[KERNEL_KEY].public({"ok": True, "plugins": request.app[KERNEL_KEY].list_plugins()}))
 
 
 async def reload_kernel(request: web.Request) -> web.Response:
     try:
         status = await request.app[KERNEL_KEY].load()
         request.app[MONITOR_KEY].log("info", "kernel", "内核重载完成", generation=status.generation)
-        return web.json_response({"ok": True, "generation": status.generation})
+        return web.json_response({"ok": not status.faults, "generation": status.generation},status=409 if status.faults else 200)
     except Exception as exc:
         return web.json_response({"error": str(exc)}, status=500)
 
@@ -258,8 +226,8 @@ async def chat(request: web.Request) -> web.StreamResponse:
             except (asyncio.CancelledError, ConnectionResetError):
                 raise
             except Exception as exc:
-                logging.getLogger("nachuan.http").warning("流式响应中断: %s", exc)
-                error = json.dumps({"error": {"message": str(exc), "type": "stream_error", "code": getattr(exc, "kind", "upstream_error").value if hasattr(getattr(exc, "kind", None), "value") else "upstream_error"}}, ensure_ascii=False)
+                logging.getLogger("nachuan.http").warning("流式响应中断: %s", kernel.public(str(exc)))
+                error = json.dumps({"error": {"message": kernel.public(str(exc)), "type": "stream_error", "code": getattr(exc, "kind", "upstream_error").value if hasattr(getattr(exc, "kind", None), "value") else "upstream_error"}}, ensure_ascii=False)
                 await response.write(("data: " + error + "\n\n").encode())
                 await response.write(b"data: [DONE]\n\n")
             finally:
@@ -287,16 +255,18 @@ async def chat(request: web.Request) -> web.StreamResponse:
         if last_error:
             raise last_error
         return openai_error(503, "no_available_route", "没有可用插件")
+    except web.HTTPException:
+        raise
     except PluginFailure as exc:
-        return openai_error(400 if exc.kind.value == "invalid_request" else 502, exc.kind.value, str(exc))
+        return openai_error(400 if exc.kind.value == "invalid_request" else 502, exc.kind.value, request.app[KERNEL_KEY].public(str(exc)))
     except PluginUnavailable as exc:
         status = 429 if "并发" in str(exc) else 503
-        return openai_error(status, "plugin_unavailable", str(exc))
+        return openai_error(status, "plugin_unavailable", request.app[KERNEL_KEY].public(str(exc)))
     except (ValueError, json.JSONDecodeError) as exc:
         return openai_error(400, "invalid_request", str(exc))
     except Exception as exc:
-        logging.getLogger("nachuan.http").exception("plugin invocation failed")
-        return openai_error(502, "plugin_error", str(exc))
+        logging.getLogger("nachuan.http").warning("plugin invocation failed: %s", request.app[KERNEL_KEY].public(str(exc)))
+        return openai_error(502, "plugin_error", request.app[KERNEL_KEY].public(str(exc)))
 
 
 def openai_error(status_code: int, code: str, message: str) -> web.Response:

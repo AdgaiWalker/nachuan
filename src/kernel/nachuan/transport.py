@@ -17,6 +17,9 @@ class PluginTransport(Protocol):
     async def close(self) -> None: ...
 
 
+RPC_MAX_BYTES = 64 * 1024 * 1024
+
+
 class ProcessTransport:
     @property
     def closed(self) -> bool:
@@ -47,7 +50,7 @@ class ProcessTransport:
         self._process = await asyncio.create_subprocess_exec(
             *self._command, cwd=self._cwd,
             stdin=asyncio.subprocess.PIPE, stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE, limit=RPC_MAX_BYTES,
         )
         self._reader = asyncio.create_task(self._read_loop())
 
@@ -71,24 +74,35 @@ class ProcessTransport:
                     if "method" in message:
                         queue = self._events.get(request_id)
                         if queue:
-                            await queue.put(message)
+                            try:
+                                await asyncio.wait_for(queue.put(message), 0.25)
+                            except TimeoutError:
+                                self._events.pop(request_id, None)
+                                self._cancel(request_id)
+                                queue.get_nowait()
+                                queue.put_nowait({'method':'error','params':{'message':'stream buffer exceeded'}})
                     elif request_id in self._pending and not self._pending[request_id].done():
                         self._pending[request_id].set_result(message)
                 except (ValueError, TypeError):
                     continue
         except asyncio.CancelledError:
             return
-        except ConnectionError as exc:
+        except Exception as exc:
             error = exc
         else:
             if not self._closed and self._process and self._process.returncode is not None:
                 error = await self.exit_error()
         finally:
+            self._closed = True
+            if self._process.returncode is None:
+                self._process.terminate()
             for future in self._pending.values():
                 if not future.done():
                     future.set_exception(error)
             for queue in self._events.values():
-                await queue.put({"method": "end", "params": {"error": str(error)}})
+                if queue.full():
+                    queue.get_nowait()
+                queue.put_nowait({"method": "end", "params": {"error": str(error)}})
 
     async def _write(self, message: dict[str, Any]) -> None:
         if self._closed or not self._process or not self._process.stdin or self._process.returncode is not None:

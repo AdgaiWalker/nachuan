@@ -46,6 +46,7 @@ class PluginMetrics:
 class Monitor:
     def __init__(self, event_limit: int = 300, bucket_count: int = 24, ledger: Ledger | None = None):
         self.ledger = ledger
+        self.secrets: set[str] = set()
         self.started_at = time.time()
         self._metrics: dict[str, PluginMetrics] = {}
         self._events: deque[dict[str, Any]] = deque(maxlen=event_limit)
@@ -88,7 +89,7 @@ class Monitor:
         if self.ledger:
             import asyncio
             vendor = usage.get("vendor", {}) if isinstance(usage, dict) else {}
-            task = self.ledger.record(UsageRecord(request_id, time.time(), plugin, model, account, bool(first_token_at is not None), not error, round(metrics.last_latency_ms), prompt_tokens, completion_tokens, tokens, "upstream" if usage else "unreported", vendor.get("cost"), str(vendor.get("unit", "")), vendor.get("remaining"), vendor.get("resetAt")))
+            task = self.ledger.record(UsageRecord(request_id, time.time(), plugin, model, account, bool(first_token_at is not None), not error, round(metrics.last_latency_ms), prompt_tokens, completion_tokens, tokens, "upstream" if usage else "unreported", vendor.get("cost"), str(vendor.get("unit", "")), vendor.get("remaining"), vendor.get("resetAt"), str(vendor.get("dimension", ""))))
             try:
                 asyncio.get_running_loop().create_task(task)
             except RuntimeError:
@@ -113,7 +114,14 @@ class Monitor:
 
     def log(self, level: str, plugin: str, message: str, **fields: Any) -> None:
         safe_fields = {key: sanitize(value) if isinstance(value, str) else value for key, value in fields.items() if key != "credential"}
+        def redact(value):
+            if isinstance(value,str):
+                for secret in sorted(self.secrets,key=len,reverse=True): value=value.replace(secret,'••••')
+            elif isinstance(value,dict): return {k:redact(v) for k,v in value.items() if k not in ('secret','credential','credentialUpdate')}
+            elif isinstance(value,list): return [redact(v) for v in value]
+            return value
         event = {"id": uuid.uuid4().hex, "timestamp": time.time(), "level": level, "plugin": plugin, "message": sanitize(message), **safe_fields}
+        event=redact(event)
         self._events.append(event)
         for queue in self._subscribers:
             try:
@@ -126,7 +134,7 @@ class Monitor:
                     pass
 
     def snapshot(self) -> dict[str, Any]:
-        metrics = {name: {**asdict(metric), "success_rate": metric.success_rate, "average_latency_ms": metric.average_latency_ms} for name, metric in self._metrics.items()}
+        metrics = {name: {**asdict(metric), "average_ttft_ms": metric.average_ttft_ms, "success_rate": metric.success_rate, "average_latency_ms": metric.average_latency_ms} for name, metric in self._metrics.items()}
         totals = Counter()
         for metric in self._metrics.values():
             for key in ("requests", "successes", "failures", "in_flight", "tokens"):

@@ -257,7 +257,8 @@ class KernelTests(unittest.IsolatedAsyncioTestCase):
             await kernel.configure(HostConfig(plugins={"2api-plugin-mock": PluginSetting(enabled=False)}))
             self.assertEqual(kernel.list_plugins()[0]["status"], "disabled")
             (directory / "spec.json").write_text("{", encoding="utf-8")
-            await kernel.configure(HostConfig(plugins={"2api-plugin-mock": PluginSetting(enabled=True)}))
+            with self.assertRaises(RuntimeError):
+                await kernel.configure(HostConfig(plugins={"2api-plugin-mock": PluginSetting(enabled=True)}))
             self.assertEqual(kernel.list_plugins()[0]["status"], "disabled")
 
     async def test_real_plugin_specs(self):

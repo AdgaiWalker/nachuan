@@ -17,7 +17,7 @@ class PluginFailure(RuntimeError):
     def account_failure(self) -> Failure | None:
         if self.kind == FailureKind.INVALID_REQUEST:
             return None
-        return Failure(self.kind, self.retry_after, self.message)
+        return Failure(self.kind, self.retry_after, self.kind.value)
 
 
 def as_failure(error: BaseException) -> PluginFailure:
@@ -33,3 +33,10 @@ def failure_from_rpc(error: dict[str, Any]) -> PluginFailure:
     except ValueError:
         kind = FailureKind.UNKNOWN
     return PluginFailure(kind, str(error.get("message", "插件调用失败")), float(data.get("retryAfter", 0)))
+
+
+class KernelError(RuntimeError):
+    def __init__(self, status: int, code: str):
+        self.status=status
+        self.code=code
+        super().__init__(code)
